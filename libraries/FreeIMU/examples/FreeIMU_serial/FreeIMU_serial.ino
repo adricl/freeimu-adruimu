@@ -18,6 +18,24 @@
 #include <Wire.h>
 #include <SPI.h>
 
+//GPS selects GPS to create
+#if HAS_GPS()
+  #include <AP_GPS.h>		// ArduPilot GPS library
+  // GPS Selection
+  FastSerialPort0(Serial);		// Instantiate the fast serial driver
+  #if   GPS_PROTOCOL == 1
+    AP_GPS_NMEA		GPS(&Serial);
+  #elif GPS_PROTOCOL == 2
+    AP_GPS_406		GPS(&Serial);
+  #elif GPS_PROTOCOL == 3
+    AP_GPS_UBLOX	GPS(&Serial);
+  #elif GPS_PROTOCOL == 4
+    AP_GPS_MTK		GPS(&Serial);
+  #else
+    # error Must define GPS_PROTOCOL with a valid value.
+  #endif
+
+#endif
 
 float q[4];
 int raw_values[9];
@@ -32,7 +50,13 @@ FreeIMU my3IMU = FreeIMU();
 char cmd;
 
 void setup() {
-  Serial.begin(115200);
+
+  #if HAS_GPS()
+    Serial.begin(38400, 128, 16);
+    GPS.init();
+  #else 
+    Serial.begin(115200);
+  #endif
   Wire.begin();
   my3IMU.init(true);
   
@@ -56,6 +80,43 @@ void loop() {
         sprintf(str, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,", raw_values[0], raw_values[1], raw_values[2], raw_values[3], raw_values[4], raw_values[5], raw_values[6], raw_values[7], raw_values[8], raw_values[9], raw_values[10]);
         Serial.print(str);
         Serial.print('\n');
+      }
+    }
+    else if(cmd=='g') {
+      uint8_t count = serial_busy_wait();
+      for(uint8_t i=0; i<count; i++) {
+        #if HAS_ITG3200()
+          my3IMU.acc.readAccel(&raw_values[0], &raw_values[1], &raw_values[2]);
+          my3IMU.gyro.readGyroRaw(&raw_values[3], &raw_values[4], &raw_values[5]);
+        #else // MPU6050
+          my3IMU.accgyro.getMotion6(&raw_values[0], &raw_values[1], &raw_values[2], &raw_values[3], &raw_values[4], &raw_values[5]);
+        #endif
+        writeArr(raw_values, 6, sizeof(int)); // writes accelerometer and gyro values
+        #if IS_9DOM()
+          my3IMU.magn.getValues(&raw_values[0], &raw_values[1], &raw_values[2]);
+          writeArr(raw_values, 3, sizeof(int));
+        #endif
+        Serial.println();
+	#if HAS_GPS()
+	  if(GPS.new_data==1) {
+	    GPS.new_data=0;
+	    Serial.print("LAT:");
+	    Serial.print(GPS.latitude);
+	    Serial.print(",LON:");
+	    Serial.print(GPS.longitude);
+	    Serial.print(",ALT:");
+	    Serial.print(GPS.altitude/100);    // meters
+	    Serial.print(",COG:");
+	    Serial.print(GPS.ground_course/100);	// degrees
+	    Serial.print(",SOG:");
+	    Serial.print(GPS.ground_speed/100);
+	    Serial.print(",FIX:");
+	    Serial.print((int)GPS.fix);				// 1 = good fix
+	    Serial.print(",SAT:"); 
+	    Serial.print((int)GPS.num_sats);
+	    Serial.print (",");
+	  }
+	#endif
       }
     }
     else if(cmd=='b') {
